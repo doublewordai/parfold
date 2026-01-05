@@ -20,7 +20,7 @@ Usage:
 from .primitives import map, filter, fold, unfold
 from .sort import quicksort, mergesort, CompareFunc
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = [
     # Core primitives
     "map",
