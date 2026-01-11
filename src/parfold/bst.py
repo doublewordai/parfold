@@ -6,7 +6,7 @@ designed for expensive comparison functions like LLM calls.
 """
 
 from __future__ import annotations
-from typing import TypeVar, Generic, Callable, Awaitable
+from typing import TypeVar, Generic, Callable, Awaitable, Iterator
 from dataclasses import dataclass
 import asyncio
 
@@ -17,24 +17,21 @@ CompareFunc = Callable[[T, T], Awaitable[int]]
 
 @dataclass
 class Node(Generic[T]):
-    """BST node with version number for optimistic concurrency."""
+    """BST node with linked list threading for O(1) sorted traversal."""
     value: T
     left: Node[T] | None = None
     right: Node[T] | None = None
+    prev: Node[T] | None = None  # in-order predecessor
+    next: Node[T] | None = None  # in-order successor
     version: int = 0
 
 
 class BST(Generic[T]):
     """
-    Lock-free Binary Search Tree with async comparison.
+    Lock-free BST with async comparison and O(1) sorted access.
 
-    Uses optimistic concurrency control:
-    1. Read current state and version
-    2. Perform expensive async comparison
-    3. Attempt update, retry if version changed
-
-    Designed for LLM-based comparisons where the comparison cost
-    dominates and lock contention would be the bottleneck.
+    Maintains a threaded linked list through nodes for cheap traversal.
+    Uses optimistic concurrency for parallel inserts.
 
     Example:
         async def llm_compare(a: str, b: str) -> int:
@@ -43,32 +40,31 @@ class BST(Generic[T]):
 
         tree = BST(llm_compare)
         await asyncio.gather(*[tree.insert(item) for item in items])
-        sorted_items = await tree.to_list()
+
+        # O(1) access to sorted items
+        for item in tree:
+            print(item)
     """
 
     def __init__(self, compare: CompareFunc[T], max_retries: int = 100):
-        """
-        Args:
-            compare: Async function returning negative if a < b,
-                     positive if a > b, zero if equal.
-            max_retries: Maximum retry attempts on conflict.
-        """
         self._compare = compare
         self._root: Node[T] | None = None
+        self._head: Node[T] | None = None  # smallest element
+        self._tail: Node[T] | None = None  # largest element
         self._max_retries = max_retries
         self._root_lock = asyncio.Lock()
+        self._size = 0
 
     async def insert(self, value: T) -> None:
-        """
-        Insert value into tree. Safe to call concurrently.
-
-        Uses optimistic concurrency: retries from conflict point
-        if another insert modified the traversal path.
-        """
+        """Insert value. Safe to call concurrently."""
         if self._root is None:
             async with self._root_lock:
                 if self._root is None:
-                    self._root = Node(value)
+                    node = Node(value)
+                    self._root = node
+                    self._head = node
+                    self._tail = node
+                    self._size = 1
                     return
 
         retries = 0
@@ -81,6 +77,9 @@ class BST(Generic[T]):
                 new_node = Node(value)
                 if parent is None:
                     self._root = new_node
+                    self._head = new_node
+                    self._tail = new_node
+                    self._size = 1
                     return
 
                 expected_version = parent.version
@@ -88,11 +87,29 @@ class BST(Generic[T]):
                     if parent.left is None and parent.version == expected_version:
                         parent.left = new_node
                         parent.version += 1
+                        # Link: new_node goes before parent
+                        new_node.next = parent
+                        new_node.prev = parent.prev
+                        if parent.prev:
+                            parent.prev.next = new_node
+                        else:
+                            self._head = new_node
+                        parent.prev = new_node
+                        self._size += 1
                         return
                 else:
                     if parent.right is None and parent.version == expected_version:
                         parent.right = new_node
                         parent.version += 1
+                        # Link: new_node goes after parent
+                        new_node.prev = parent
+                        new_node.next = parent.next
+                        if parent.next:
+                            parent.next.prev = new_node
+                        else:
+                            self._tail = new_node
+                        parent.next = new_node
+                        self._size += 1
                         return
 
                 retries += 1
@@ -130,41 +147,47 @@ class BST(Generic[T]):
             node = node.left if cmp < 0 else node.right
         return False
 
-    async def to_list(self) -> list[T]:
-        """Return in-order traversal as list."""
-        result: list[T] = []
+    def __iter__(self) -> Iterator[T]:
+        """Iterate in sorted order via linked list. O(1) to start."""
+        node = self._head
+        while node is not None:
+            yield node.value
+            node = node.next
 
-        def inorder(node: Node[T] | None) -> None:
-            if node is None:
-                return
-            inorder(node.left)
-            result.append(node.value)
-            inorder(node.right)
+    def __reversed__(self) -> Iterator[T]:
+        """Iterate in reverse sorted order."""
+        node = self._tail
+        while node is not None:
+            yield node.value
+            node = node.prev
 
-        inorder(self._root)
-        return result
+    def to_list(self) -> list[T]:
+        """Return sorted list. O(n) but no comparisons needed."""
+        return list(self)
 
     def __len__(self) -> int:
-        """Count nodes."""
-        def count(node: Node[T] | None) -> int:
-            if node is None:
-                return 0
-            return 1 + count(node.left) + count(node.right)
-        return count(self._root)
+        return self._size
+
+    @property
+    def min(self) -> T | None:
+        """Smallest element. O(1)."""
+        return self._head.value if self._head else None
+
+    @property
+    def max(self) -> T | None:
+        """Largest element. O(1)."""
+        return self._tail.value if self._tail else None
 
 
 class CachedCompare(Generic[T]):
     """
     Caches async comparison results.
 
-    Useful when LLM comparisons are expensive and may be repeated.
     Handles both (a,b) and (b,a) lookups.
 
     Example:
         cached = CachedCompare(llm_compare)
         tree = BST(cached)
-        # ... operations ...
-        print(f"Cache: {cached.hits} hits, {cached.misses} misses")
     """
 
     def __init__(self, compare: CompareFunc[T]):

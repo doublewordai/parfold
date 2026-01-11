@@ -7,7 +7,6 @@ from parfold import BST, CachedCompare
 
 
 async def int_compare(a: int, b: int) -> int:
-    """Simple int comparison."""
     return a - b
 
 
@@ -16,14 +15,18 @@ class TestBST:
     async def test_empty_tree(self):
         tree = BST(int_compare)
         assert len(tree) == 0
-        assert await tree.to_list() == []
+        assert tree.to_list() == []
+        assert tree.min is None
+        assert tree.max is None
 
     @pytest.mark.asyncio
     async def test_single_insert(self):
         tree = BST(int_compare)
         await tree.insert(5)
         assert len(tree) == 1
-        assert await tree.to_list() == [5]
+        assert tree.to_list() == [5]
+        assert tree.min == 5
+        assert tree.max == 5
 
     @pytest.mark.asyncio
     async def test_sequential_inserts(self):
@@ -31,7 +34,9 @@ class TestBST:
         for x in [5, 3, 7, 1, 9]:
             await tree.insert(x)
         assert len(tree) == 5
-        assert await tree.to_list() == [1, 3, 5, 7, 9]
+        assert tree.to_list() == [1, 3, 5, 7, 9]
+        assert tree.min == 1
+        assert tree.max == 9
 
     @pytest.mark.asyncio
     async def test_parallel_inserts(self):
@@ -39,7 +44,7 @@ class TestBST:
         items = [5, 3, 7, 1, 9, 4, 6, 2, 8]
         await asyncio.gather(*[tree.insert(x) for x in items])
         assert len(tree) == 9
-        assert await tree.to_list() == sorted(items)
+        assert tree.to_list() == sorted(items)
 
     @pytest.mark.asyncio
     async def test_parallel_inserts_large(self):
@@ -48,7 +53,23 @@ class TestBST:
         random.shuffle(items)
         await asyncio.gather(*[tree.insert(x) for x in items])
         assert len(tree) == 100
-        assert await tree.to_list() == sorted(items)
+        assert tree.to_list() == sorted(items)
+
+    @pytest.mark.asyncio
+    async def test_iterator(self):
+        tree = BST(int_compare)
+        items = [5, 3, 7, 1, 9]
+        for x in items:
+            await tree.insert(x)
+        assert list(tree) == [1, 3, 5, 7, 9]
+
+    @pytest.mark.asyncio
+    async def test_reversed_iterator(self):
+        tree = BST(int_compare)
+        items = [5, 3, 7, 1, 9]
+        for x in items:
+            await tree.insert(x)
+        assert list(reversed(tree)) == [9, 7, 5, 3, 1]
 
     @pytest.mark.asyncio
     async def test_contains_found(self):
@@ -77,22 +98,40 @@ class TestBST:
         tree = BST(int_compare)
         await asyncio.gather(*[tree.insert(5) for _ in range(5)])
         assert len(tree) == 5
-        result = await tree.to_list()
-        assert result == [5, 5, 5, 5, 5]
+        assert tree.to_list() == [5, 5, 5, 5, 5]
 
     @pytest.mark.asyncio
     async def test_sorted_input(self):
         tree = BST(int_compare)
         items = list(range(20))
         await asyncio.gather(*[tree.insert(x) for x in items])
-        assert await tree.to_list() == items
+        assert tree.to_list() == items
 
     @pytest.mark.asyncio
     async def test_reverse_sorted_input(self):
         tree = BST(int_compare)
         items = list(range(20, 0, -1))
         await asyncio.gather(*[tree.insert(x) for x in items])
-        assert await tree.to_list() == sorted(items)
+        assert tree.to_list() == sorted(items)
+
+    @pytest.mark.asyncio
+    async def test_linked_list_integrity(self):
+        """Verify linked list is properly threaded after parallel inserts."""
+        tree = BST(int_compare)
+        items = list(range(50))
+        random.shuffle(items)
+        await asyncio.gather(*[tree.insert(x) for x in items])
+
+        # Forward traversal
+        forward = list(tree)
+        assert forward == sorted(items)
+
+        # Backward traversal
+        backward = list(reversed(tree))
+        assert backward == sorted(items, reverse=True)
+
+        # Verify consistency
+        assert forward == list(reversed(backward))
 
 
 class TestCachedCompare:
@@ -154,5 +193,5 @@ class TestCachedCompare:
         for x in items:
             await tree.insert(x)
 
-        assert await tree.to_list() == sorted(items)
+        assert tree.to_list() == sorted(items)
         assert cached.misses > 0
