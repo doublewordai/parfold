@@ -96,6 +96,52 @@ sorted_items = await mergesort(items, compare)
 **Quicksort** parallelizes comparisons to the pivot within each partition.
 **Mergesort** parallelizes the recursive sorting of left/right halves.
 
+## BST — Binary Search Tree
+
+Lock-free BST with parallel inserts and O(1) sorted traversal.
+
+```python
+from parfold import BST
+
+async def compare(a: str, b: str) -> int:
+    return await llm_compare(a, b)
+
+tree = BST(compare)
+
+# Parallel inserts
+await asyncio.gather(*[tree.insert(x) for x in items])
+
+# O(1) access to sorted order (no comparisons needed)
+for item in tree:
+    print(item)
+
+# O(1) min/max
+print(tree.min, tree.max)
+```
+
+Uses optimistic concurrency control for parallel inserts. Maintains a threaded linked list through nodes for cheap traversal.
+
+| Operation | Comparisons | Time |
+|-----------|-------------|------|
+| `insert()` | O(log n) | O(1) pointer ops |
+| `min`/`max` | 0 | O(1) |
+| `for x in tree` | 0 | O(n) |
+| `contains()` | O(log n) | — |
+
+### CachedCompare
+
+Wrap your comparison function to cache results:
+
+```python
+from parfold import BST, CachedCompare
+
+cached = CachedCompare(llm_compare)
+tree = BST(cached)
+
+# After operations:
+print(f"Cache: {cached.hits} hits, {cached.misses} misses")
+```
+
 ## Use Cases
 
 - **Summarization**: Fold document chunks into a single summary
