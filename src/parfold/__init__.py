@@ -1,8 +1,8 @@
 """
 Parfold: Parallel async primitives for tree-based operations.
 
-Provides fold, unfold, map, filter, and sorting algorithms that execute
-async operations in parallel using tree-structured computation.
+Provides fold, unfold, map, filter, sorting algorithms, and a BST
+that execute async operations in parallel.
 
 Usage:
     from parfold import fold, unfold, map, filter, quicksort, mergesort
@@ -15,20 +15,27 @@ Usage:
 
     # Parallel sorting with custom comparator
     sorted_items = await quicksort(items, compare_fn)
+
+    # BST with LLM comparison
+    from parfold import BST
+    tree = BST(llm_compare)
+    await asyncio.gather(*[tree.insert(x) for x in items])
 """
 
 from .primitives import map, filter, fold, unfold
 from .sort import quicksort, mergesort, CompareFunc
+from .bst import BST, Node, CachedCompare
 
 __version__ = "0.1.1"
 __all__ = [
-    # Core primitives
     "map",
     "filter",
     "fold",
     "unfold",
-    # Sorting (built on primitives)
     "quicksort",
     "mergesort",
     "CompareFunc",
+    "BST",
+    "Node",
+    "CachedCompare",
 ]

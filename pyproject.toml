@@ -23,6 +23,12 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
 [project.urls]
 Homepage = "https://github.com/doublewordai/parfold"
 Repository = "https://github.com/doublewordai/parfold"
@@ -34,3 +40,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/parfold"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
