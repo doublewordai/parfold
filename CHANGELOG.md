@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.2](https://github.com/doublewordai/parfold/compare/parfold-v0.1.1...parfold-v0.1.2) (2026-01-11)
+
+
+### Features
+
+* add lock-free BST with async comparison ([b41f9e8](https://github.com/doublewordai/parfold/commit/b41f9e890e9ee24fe83555042537f18caeabb158))
+* add threaded linked list for O(1) sorted traversal ([7512078](https://github.com/doublewordai/parfold/commit/7512078ea5eadf16814751d7fc0e03e1e76ed293))
+
+
+### Documentation
+
+* add BST and CachedCompare to README ([9c690da](https://github.com/doublewordai/parfold/commit/9c690daba61a58c07f7218c6014a2e781ffc5522))
+
 ## [0.1.1](https://github.com/doublewordai/parfold/compare/parfold-v0.1.0...parfold-v0.1.1) (2026-01-05)
 
 

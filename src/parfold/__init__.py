@@ -26,7 +26,7 @@ from .primitives import map, filter, fold, unfold
 from .sort import quicksort, mergesort, CompareFunc
 from .bst import BST, Node, CachedCompare
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __all__ = [
     "map",
     "filter",
