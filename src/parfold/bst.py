@@ -13,6 +13,7 @@ import asyncio
 T = TypeVar("T")
 
 CompareFunc = Callable[[T, T], Awaitable[int]]
+EvictFunc = Callable[[T], Awaitable[None]]
 
 
 @dataclass
@@ -46,48 +47,86 @@ class BST(Generic[T]):
             print(item)
     """
 
-    def __init__(self, compare: CompareFunc[T], max_retries: int = 100):
+    def __init__(
+        self,
+        compare: CompareFunc[T],
+        max_retries: int = 100,
+        max_size: int | None = None,
+        on_evict: EvictFunc[T] | None = None,
+    ):
         self._compare = compare
         self._root: Node[T] | None = None
         self._head: Node[T] | None = None  # smallest element
         self._tail: Node[T] | None = None  # largest element
         self._max_retries = max_retries
-        self._root_lock = asyncio.Lock()
+        self._max_size = max_size
+        self._on_evict = on_evict
+        self._link_lock = asyncio.Lock()  # Protects tree modification and linked list operations
         self._size = 0
 
     async def insert(self, value: T) -> None:
         """Insert value. Safe to call concurrently."""
+        # Handle empty tree case
         if self._root is None:
-            async with self._root_lock:
+            async with self._link_lock:
                 if self._root is None:
                     node = Node(value)
                     self._root = node
                     self._head = node
                     self._tail = node
                     self._size = 1
+                    await self._maybe_evict()
                     return
 
         retries = 0
-        node = self._root
-        parent: Node[T] | None = None
-        go_left = False
 
         while retries < self._max_retries:
-            if node is None:
-                new_node = Node(value)
-                if parent is None:
-                    self._root = new_node
-                    self._head = new_node
-                    self._tail = new_node
-                    self._size = 1
-                    return
+            # Phase 1: Traverse tree to find insertion point (parallel, no lock)
+            node = self._root
+            parent: Node[T] | None = None
+            go_left = False
 
-                expected_version = parent.version
-                if go_left:
-                    if parent.left is None and parent.version == expected_version:
+            while node is not None:
+                saved_version = node.version
+                saved_left = node.left
+                saved_right = node.right
+
+                cmp = await self._compare(value, node.value)
+
+                # Check if tree changed during comparison
+                if node.version != saved_version:
+                    break  # Restart traversal
+
+                parent = node
+                if cmp < 0:
+                    go_left = True
+                    node = saved_left
+                else:
+                    go_left = False
+                    node = saved_right
+            else:
+                # Phase 2: Link new node (serialized with lock)
+                async with self._link_lock:
+                    # Re-verify insertion point is still valid
+                    if parent is None:
+                        # Tree became empty, shouldn't happen but handle it
+                        new_node = Node(value)
+                        self._root = new_node
+                        self._head = new_node
+                        self._tail = new_node
+                        self._size = 1
+                        await self._maybe_evict()
+                        return
+
+                    if go_left:
+                        if parent.left is not None:
+                            # Slot taken, retry
+                            retries += 1
+                            continue
+                        new_node = Node(value)
                         parent.left = new_node
                         parent.version += 1
-                        # Link: new_node goes before parent
+                        # Link: new_node goes before parent in sorted order
                         new_node.next = parent
                         new_node.prev = parent.prev
                         if parent.prev:
@@ -95,13 +134,15 @@ class BST(Generic[T]):
                         else:
                             self._head = new_node
                         parent.prev = new_node
-                        self._size += 1
-                        return
-                else:
-                    if parent.right is None and parent.version == expected_version:
+                    else:
+                        if parent.right is not None:
+                            # Slot taken, retry
+                            retries += 1
+                            continue
+                        new_node = Node(value)
                         parent.right = new_node
                         parent.version += 1
-                        # Link: new_node goes after parent
+                        # Link: new_node goes after parent in sorted order
                         new_node.prev = parent
                         new_node.next = parent.next
                         if parent.next:
@@ -109,33 +150,34 @@ class BST(Generic[T]):
                         else:
                             self._tail = new_node
                         parent.next = new_node
-                        self._size += 1
-                        return
 
-                retries += 1
-                node = self._root
-                parent = None
-                continue
+                    self._size += 1
+                    await self._maybe_evict()
+                    return
 
-            saved_version = node.version
-            saved_left = node.left
-            saved_right = node.right
-
-            cmp = await self._compare(value, node.value)
-
-            if node.version != saved_version:
-                retries += 1
-                continue
-
-            parent = node
-            if cmp < 0:
-                go_left = True
-                node = saved_left
-            else:
-                go_left = False
-                node = saved_right
+            retries += 1
 
         raise RuntimeError(f"Insert failed after {self._max_retries} retries")
+
+    async def _maybe_evict(self) -> None:
+        """Evict lowest-ranked items if over max_size."""
+        if self._max_size is None or self._size <= self._max_size:
+            return
+
+        while self._size > self._max_size and self._head:
+            evicted = self._head.value
+            # Unlink from list (leave orphaned in tree - harmless for correctness)
+            old_head = self._head
+            self._head = old_head.next
+            if self._head:
+                self._head.prev = None
+            else:
+                self._tail = None  # Tree is now empty
+            old_head.next = None  # Help GC
+            self._size -= 1
+
+            if self._on_evict:
+                await self._on_evict(evicted)
 
     async def contains(self, value: T) -> bool:
         """Check if value exists in tree."""
