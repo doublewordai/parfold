@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/doublewordai/parfold/compare/parfold-v0.1.2...parfold-v0.1.3) (2026-01-12)
+
+
+### Features
+
+* add evictions + eviction callbacks to the bst implementation ([d0eba59](https://github.com/doublewordai/parfold/commit/d0eba59c88beeac734ffc07530d1c925bcc4c784))
+
 ## [0.1.2](https://github.com/doublewordai/parfold/compare/parfold-v0.1.1...parfold-v0.1.2) (2026-01-11)
 
 
